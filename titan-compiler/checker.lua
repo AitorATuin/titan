@@ -22,43 +22,55 @@ end
 --   errors: list of compile-time errors
 --   pos: position of the term that is being compared
 local function checkmatch(term, expected, found, errors, pos)
-    if types.coerceable(found, expected) or not types.compatible(expected, found) then
+    if types.coerceable(found, expected) or
+       not types.compatible(expected, found) then
         local msg = "types in %s do not match, expected %s but found %s"
-        msg = string.format(msg, term, types.tostring(expected), types.tostring(found))
+        msg = string.format(msg, term, types.tostring(expected),
+                            types.tostring(found))
         typeerror(errors, msg, pos)
     end
 end
 
 -- Converts an AST type declaration into a typechecker type
---   typenode: AST node
+--   node: AST node
 --   errors: list of compile-time errors
 --   returns a type (from types.lua)
-local function typefromnode(typenode, errors)
-    local tag = typenode._tag
+local function typefromnode(node, st, errors)
+    local tag = node._tag
     if tag == "Type_Array" then
-        return types.Array(typefromnode(typenode.subtype, errors))
+        return types.Array(typefromnode(node.subtype, st, errors))
+
     elseif tag == "Type_Name" then
-        local t = types.Base(typenode.name)
-        if not t then
-            typeerror(errors, "type name " .. typenode.name .. " is invalid", typenode._pos)
-            t = types.Integer
+        local name = node.name
+        local type = types.Base(name)
+        if not type then
+            local sym = st:find_symbol(name)
+            if sym then
+                if sym._type._tag == "Record" then
+                    type = sym._type
+                else
+                    typeerror(errors, "%s isn't a type", node._pos, name)
+                end
+            else
+                typeerror(errors, "type '%s' not found", node._pos, name)
+            end
         end
-        return t
+        return type or types.Integer
+
     elseif tag == "Type_Function" then
-        if #typenode.argtypes ~= 1 then
+        if #node.argtypes ~= 1 then
             error("functions with 0 or 2+ return values are not yet implemented")
         end
-
         local ptypes = {}
-        for _, ptype in ipairs(typenode.argtypes) do
-            table.insert(ptypes, typefromnode(ptype, errors))
+        for _, ptype in ipairs(node.argtypes) do
+            table.insert(ptypes, typefromnode(ptype, st, errors))
         end
         local rettypes = {}
-        for _, rettype in ipairs(typenode.rettypes) do
-            table.insert(rettypes, typefromnode(rettype, errors))
+        for _, rettype in ipairs(node.rettypes) do
+            table.insert(rettypes, typefromnode(rettype, st, errors))
         end
-
         return types.Function(ptypes, rettypes)
+
     else
         error("invalid node tag " .. tag)
     end
@@ -158,7 +170,7 @@ function checkstat(node, st, errors)
     local tag = node._tag
     if tag == "Decl_Decl" then
         st:add_symbol(node.name, node)
-        node._type = node._type or typefromnode(node.type, errors)
+        node._type = node._type or typefromnode(node.type, st, errors)
     elseif tag == "Stat_Decl" then
         if node.decl.type then
           checkstat(node.decl, st, errors)
@@ -571,7 +583,7 @@ function checkexp(node, st, errors, context)
     elseif tag == "Exp_Cast" then
         local l, _ = util.get_line_number(errors.subject, node._pos)
         node._lin = l
-        node.target = typefromnode(node.target, errors)
+        node.target = typefromnode(node.target, st, errors)
         checkexp(node.exp, st, errors, node.target)
         if not types.coerceable(node.exp._type, node.target) or
           not types.compatible(node.exp._type, node.target) then
@@ -614,10 +626,9 @@ end
 --   errors: list of compile-time errors
 local function checkbodies(ast, st, errors)
     for _, node in ipairs(ast) do
-        if not node._ignore then
-            if node._tag == "TopLevel_Func" then
-                st:with_block(checkfunc, node, st, errors)
-            end
+        if not node._ignore and
+           node._tag == "TopLevel_Func" then
+            st:with_block(checkfunc, node, st, errors)
         end
     end
 end
@@ -629,7 +640,8 @@ local function toplevel_name(node)
         return node.localname
     elseif tag == "TopLevel_Var" then
         return node.decl.name
-    elseif tag == "TopLevel_Func" then
+    elseif tag == "TopLevel_Func" or
+           tag == "TopLevel_Record" then
         return node.name
     else
         error("tag not found " .. tag)
@@ -656,7 +668,7 @@ local tlcheckers = {
     ["TopLevel_Var"] =
         function(node, st, errors)
             if node.decl.type then
-                node._type = typefromnode(node.decl.type, errors)
+                node._type = typefromnode(node.decl.type, st, errors)
                 checkexp(node.value, st, errors, node._type)
                 node.value = trycoerce(node.value, node._type, errors)
                 checkmatch("declaration of module variable " .. node.decl.name,
@@ -674,13 +686,23 @@ local tlcheckers = {
             end
             local ptypes = {}
             for _, pdecl in ipairs(node.params) do
-                table.insert(ptypes, typefromnode(pdecl.type, errors))
+                table.insert(ptypes, typefromnode(pdecl.type, st, errors))
             end
             local rettypes = {}
             for _, rt in ipairs(node.rettypes) do
-                table.insert(rettypes, typefromnode(rt, errors))
+                table.insert(rettypes, typefromnode(rt, st, errors))
             end
             node._type = types.Function(ptypes, rettypes)
+        end,
+
+    ["TopLevel_Record"] =
+        function(node, st, errors)
+            local fields = {}
+            for _, field in ipairs(node.fields) do
+                local type = typefromnode(field.type, st, errors)
+                table.insert(fields, {type = type, name = field.name})
+            end
+            node._type = types.Record(node.name, fields)
         end,
 }
 

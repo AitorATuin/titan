@@ -50,7 +50,7 @@ describe("Titan type checker", function()
         ]]
         local ok, err = run_checker(code)
         assert.falsy(ok)
-        assert.match("type name foo is invalid", err)
+        assert.match("type 'foo' not found", err)
     end)
 
     it("coerces to integer", function()

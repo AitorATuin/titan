@@ -20,6 +20,10 @@ function types.Module(modname, members)
         members = members }
 end
 
+function types.Record(name, ftypes)
+    return { _tag = "Record", name = name, ftypes = ftypes }
+end
+
 local base_types = { "Integer", "Boolean", "String", "Nil", "Float", "Value" }
 
 for _, t in ipairs(base_types) do
