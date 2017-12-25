@@ -190,7 +190,8 @@ local grammar = re.compile([[
                         {| ( toplevelfunc
                            / toplevelvar
                            / toplevelrecord
-                           / import )* |} !.
+                           / import
+                           / foreign )* |} !.
 
     toplevelfunc    <- ({} localopt
                            FUNCTION (NAME / %{NameFunc})
@@ -199,7 +200,8 @@ local grammar = re.compile([[
                            block (END / %{EndFunc}))             -> TopLevel_Func
 
     toplevelvar     <- ({} localopt decl (ASSIGN / %{AssignVar})
-                           !IMPORT (exp / %{ExpVarDec}))         -> TopLevel_Var
+                           !(IMPORT / FOREIGN)
+                           (exp / %{ExpVarDec}))                 -> TopLevel_Var
 
     toplevelrecord  <- ({} RECORD (NAME / %{NameRecord}) (recordfields / %{FieldRecord})
                            (END / %{EndRecord}))                 -> TopLevel_Record
@@ -207,9 +209,14 @@ local grammar = re.compile([[
     localopt        <- (LOCAL)?                                  -> boolopt
 
     import          <- ({} LOCAL (NAME / %{NameImport}) (ASSIGN / %{AssignImport})
-                          (IMPORT / %{ImportImport})
+                          !FOREIGN (IMPORT / %{ImportImport})
                           (LPAREN (STRING / %{StringLParImport}) (RPAREN / %{RParImport}) /
                           (STRING / %{StringImport})))           -> TopLevel_Import
+
+    foreign         <- ({} LOCAL (NAME / %{NameImport}) (ASSIGN / %{AssignImport})
+                          FOREIGN (IMPORT / %{ImportImport})
+                          (LPAREN (STRING / %{StringLParImport}) (RPAREN / %{RParImport}) /
+                          (STRING / %{StringImport})))           -> TopLevel_ForeignImport
 
     rettypeopt      <- ({} (COLON (rettype / %{TypeFunc}))?)     -> rettypeopt
 
@@ -394,6 +401,7 @@ local grammar = re.compile([[
     WHILE           <- %WHILE SKIP*
     IMPORT          <- %IMPORT SKIP*
     AS              <- %AS SKIP*
+    FOREIGN         <- %FOREIGN SKIP*
 
     ADD             <- %ADD SKIP*
     SUB             <- %SUB SKIP*

@@ -20,6 +20,11 @@ function types.Module(modname, members)
         members = members }
 end
 
+function types.ForeignModule(modname, members)
+    return { _tag = "ForeignModule", name = modname,
+        members = members }
+end
+
 local base_types = { "Integer", "Boolean", "String", "Nil", "Float", "Value" }
 
 for _, t in ipairs(base_types) do
@@ -39,22 +44,39 @@ function types.is_gc(t)
     return t._tag == "String" or t._tag == "Array" or t._tag == "Value"
 end
 
+--- Check if two pointer types are different and can be coerced.
+local function can_coerce_pointer(source, target)
+    if types.equals(source, target) then
+        return false
+    end
+    if types.has_tag(target.type, "Nil") then
+        -- all pointers are convertible to void*
+        if types.equals(source, types.String) then
+            return true
+        elseif types.has_tag(source, "Pointer") then
+            return true
+        end
+    end
+    return false
+end
+
 function types.coerceable(source, target)
-    return (types.equals(source, types.Integer) and
-            types.equals(target, types.Float)) or
-           (types.equals(source, types.Float) and
-            types.equals(target, types.Integer)) or
-           (types.equals(target, types.Boolean) and
-            not types.equals(source, types.Boolean)) or
-           (types.equals(target, types.Value) and
-            not types.equals(source, types.Value)) or
-           (types.equals(source, types.Value) and
-            not types.equals(target, types.Value))
+    local ok = (types.has_tag(target, "Pointer") and can_coerce_pointer(source, target))
+        or (types.equals(source, types.Integer) and types.equals(target, types.Float))
+        or (types.equals(source, types.Float) and types.equals(target, types.Integer))
+        or (types.equals(target, types.Boolean) and not types.equals(source, types.Boolean))
+        or (types.equals(target, types.Value) and not types.equals(source, types.Value))
+        or (types.equals(source, types.Value) and not types.equals(target, types.Value))
+    return ok
 end
 
 function types.compatible(t1, t2)
     if types.equals(t1, t2) then
         return true
+    elseif t1._tag == "Typedef" then
+        return types.compatible(t1.type, t2)
+    elseif t2._tag == "Typedef" then
+        return types.compatible(t1, t2.type)
     elseif t1._tag == "Value" or t2._tag == "Value" then
         return true
     elseif t1._tag == "Array" and t2._tag == "Array" then
@@ -90,6 +112,10 @@ function types.equals(t1, t2)
     local tag1, tag2 = t1._tag, t2._tag
     if tag1 == "Array" and tag2 == "Array" then
         return types.equals(t1.elem, t2.elem)
+    elseif tag1 == "Pointer" and tag2 == "Pointer" then
+        return types.equals(t1.type, t2.type)
+    elseif tag1 == "Typedef" and tag2 == "Typedef" then
+        return t1.name == t2.name
     elseif tag1 == "Function" and tag2 == "Function" then
         if #t1.params ~= #t2.params then
             return false
@@ -123,6 +149,10 @@ function types.tostring(t)
     local tag = t._tag
     if tag == "Array" then
         return "{ " .. types.tostring(t.elem) .. " }"
+    elseif tag == "Pointer" then
+        return "pointer to " .. types.tostring(t.type)
+    elseif tag == "Typedef" then
+        return t.name
     elseif tag == "Function" then
         error("not implemented")
     else

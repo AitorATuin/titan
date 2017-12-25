@@ -13,7 +13,8 @@ types.TopLevel = {
     Func    = {"islocal", "name", "params", "rettypes", "block"},
     Var     = {"islocal", "decl", "value"},
     Record  = {"name", "fields"},
-    Import  = {"localname", "modname"}
+    Import  = {"localname", "modname"},
+    ForeignImport = {"localname", "headername"},
 }
 
 types.Decl = {
