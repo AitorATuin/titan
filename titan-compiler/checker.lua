@@ -588,8 +588,9 @@ function checkexp(node, st, errors, context)
         node._lin = l
         node.target = typefromnode(node.target, errors)
         checkexp(node.exp, st, errors, node.target)
-        if not types.coerceable(node.exp._type, node.target) or
-          not types.compatible(node.exp._type, node.target) then
+        if not (types.explicitly_coerceable(node.exp._type, node.target) or
+                types.coerceable(node.exp._type, node.target))
+           or not types.compatible(node.exp._type, node.target) then
             typeerror(errors, "cannot cast '%s' to '%s'", node._pos,
                 types.tostring(node.exp._type), types.tostring(node.target))
         end
